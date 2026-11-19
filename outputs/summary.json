@@ -1,0 +1,38 @@
+{
+  "cleaning": {
+    "rows_raw": 10194,
+    "bad_order_dates": 0,
+    "invalid_sales_or_cost": 0,
+    "inconsistent_gross_profit": 0,
+    "missing_units": 0,
+    "rows_clean": 10194,
+    "rows_removed": 0,
+    "unmapped_factory_rows": 0
+  },
+  "kpis": {
+    "Sales": 141783.63,
+    "GrossProfit": 93442.79999999999,
+    "Cost": 48340.83,
+    "Units": 38654,
+    "GrossMargin": 0.6590521063679917,
+    "ProfitPerUnit": 2.4174160500853725,
+    "Orders": 8549
+  },
+  "pareto": {
+    "products_revenue_80": {
+      "items": 15,
+      "items_for_cutoff": 5,
+      "pct_items_for_cutoff": 0.3333333333333333
+    },
+    "products_profit_80": {
+      "items": 15,
+      "items_for_cutoff": 5,
+      "pct_items_for_cutoff": 0.3333333333333333
+    },
+    "states_profit_80": {
+      "items": 59,
+      "items_for_cutoff": 16,
+      "pct_items_for_cutoff": 0.2711864406779661
+    }
+  }
+}
