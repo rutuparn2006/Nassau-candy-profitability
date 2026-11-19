@@ -86,9 +86,10 @@ def main():
         off = stagger.get(r["Product Name"], (4, 4))
         ax.annotate(SHORT(r["Product Name"]), (r["Sales"], r["GrossMargin"] * 100), fontsize=7.5,
                     xytext=(off[0] - 120 if r["Product Name"] in stagger else off[0], off[1]),
-                    textcoords="offset points", ha="left")
-    ax.set_xlim(right=diag["Sales"].max() * 1.6)
+                    textcoords="offset points", ha="left",
+                    arrowprops=dict(arrowstyle="-", color=GREY, lw=.5) if r["Product Name"] in stagger else None)
     ax.set_xscale("log"); ax.axhline(60, color=GREY, ls="--", lw=1)
+    ax.set_xlim(left=diag["Sales"].min() * 0.6, right=diag["Sales"].max() * 2.2)
     ax.set_xlabel("Total sales ($, log scale)"); ax.set_ylabel("Gross margin (%)")
     ax.set_title("Sales volume vs margin (bubble = units)")
     save(fig, "02_sales_vs_margin.png")
