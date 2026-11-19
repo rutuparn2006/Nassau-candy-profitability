@@ -29,7 +29,8 @@ pip install -r requirements.txt
 
 python run_analysis.py      # regenerate outputs/tables/*.csv and outputs/figures/*.png
 pytest                      # run the tests
-streamlit run app.py        # launch the dashboard at http://localhost:8501
+python manage_users.py add yourname --role admin --name "Your Name"   # create the first account
+streamlit run app.py        # launch the dashboard at http://localhost:8501 and sign in
 ```
 
 ## Dashboard
@@ -42,7 +43,37 @@ Sidebar: **date range**, **division filter**, **margin threshold slider** (plus 
 | Division performance | Revenue vs profit share, margin distribution by division, monthly margin, factory table |
 | Cost vs margin diagnostics | Cost-sales scatter, margin risk flags, price / cost change needed to hit the target margin |
 | Profit concentration | Pareto charts (adjustable cut-off), dependency indicators (HHI), geographic concentration |
-| Data & method | Cleaning report, metric definitions, caveats, CSV download |
+| Data & method | Cleaning report, metric definitions, caveats, CSV download (analyst and admin) |
+| Team & access | People, roles, audit log (admin only) |
+
+## Sign-in and access
+
+The dashboard sits behind a login page. Nothing (not even the data) loads until someone signs in.
+
+| Role | Can do |
+|---|---|
+| Admin | Everything, plus add / disable / delete people, reset passwords, unlock accounts, read the audit log (Team & access tab) |
+| Analyst | All dashboards, the Data & method tab, CSV export |
+| Viewer | Dashboards only |
+
+**Creating accounts.** There is no default password. Create the first admin with `python manage_users.py add <username> --role admin`
+(passwords are prompted for, never typed on the command line). After that, admins add people from the **Team & access** tab.
+`manage_users.py` also supports `list`, `passwd`, `role`, `enable`, `disable`, `unlock`, `delete` and `audit`.
+On a hosted deployment where you can't run the CLI, set `NASSAU_ADMIN_USER` and `NASSAU_ADMIN_PASSWORD` (environment variables or
+`.streamlit/secrets.toml`) and the first admin is created on first start; change that password after signing in.
+
+**What is enforced**
+
+* Passwords are stored only as salted PBKDF2-HMAC-SHA256 hashes (600,000 iterations), checked in constant time. Minimum 10 characters with a letter and a number.
+* 5 wrong attempts lock a username for 15 minutes (also for names that don't exist, and the login error never says which part was wrong).
+* Sessions end after 30 minutes of inactivity. Disabling or deleting a person takes effect on their next click.
+* The last active admin can't be removed, disabled or demoted.
+* Sign-ins, failures, lock-outs and account changes are written to `auth_data/audit.log`.
+* Accounts live in `auth_data/users.json` (owner-only permissions, git-ignored).
+
+**Limits.** Lock-out is per username, not per IP. Sessions are per browser tab and end on a full page refresh (there is no "remember me").
+The user store is a JSON file, which suits a small team on one server; for many app instances or SSO, put the app behind your identity
+provider or swap `UserStore` for a database. Serve the app over HTTPS in production so passwords are encrypted in transit.
 
 ## KPIs
 
@@ -58,15 +89,21 @@ Sidebar: **date range**, **division filter**, **margin threshold slider** (plus 
 
 ```
 nassau-candy-profitability/
-├── app.py                  # Streamlit dashboard
+├── app.py                  # Streamlit dashboard (behind the login)
+├── manage_users.py         # create / manage accounts from the command line
 ├── run_analysis.py         # end-to-end analysis -> outputs/
+├── .streamlit/config.toml  # base theme colours
 ├── nassau/
 │   ├── data.py             # loading, cleaning, validation, factory mapping
-│   └── metrics.py          # KPIs, segmentation, Pareto, HHI, diagnostics
+│   ├── metrics.py          # KPIs, segmentation, Pareto, HHI, diagnostics
+│   ├── auth.py             # hashing, roles, lock-out, audit log (no Streamlit dependency)
+│   ├── auth_ui.py          # login screen, session handling, admin panel
+│   └── theme.py            # palette, CSS, animations, Plotly template
 ├── data/nassau_candy_distributor.csv
 ├── outputs/{tables,figures,summary.json}
 ├── reports/{research_report.md, executive_summary.md}
-├── tests/test_metrics.py
+├── auth_data/              # created at runtime: users.json, audit.log (git-ignored)
+├── tests/{test_metrics.py, test_auth.py, test_theme.py}
 └── requirements.txt
 ```
 

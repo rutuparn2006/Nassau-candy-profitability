@@ -1,6 +1,7 @@
 """Nassau Candy - Product Line Profitability & Margin Performance dashboard.
 
 Run:  streamlit run app.py
+Create the first account:  python manage_users.py add <username> --role admin
 """
 from __future__ import annotations
 
@@ -10,14 +11,21 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from nassau import auth_ui, theme
 from nassau import metrics as M
 from nassau.data import load_clean
+from nassau.theme import DIVISION_COLORS as COLORS, FLAG_COLORS
 
 st.set_page_config(page_title="Nassau Candy | Profitability", page_icon="🍬", layout="wide")
+theme.register_plotly_template()
+st.markdown(theme.style_tag(), unsafe_allow_html=True)
 
-COLORS = {"Chocolate": "#2a6fdb", "Other": "#e8833a", "Sugar": "#2e9c6a"}
-FLAG_COLORS = {"Healthy": "#2e9c6a", "Repricing review": "#e8b13a", "Cost renegotiation": "#e8833a",
-               "Cost renegotiation + repricing": "#d1495b", "Discontinuation review": "#8b1e3f"}
+# ------------------------------------------------------------------ sign-in gate (nothing below runs without it)
+store = auth_ui.get_store()
+user = auth_ui.current_user(store)
+if user is None:
+    auth_ui.render_login(store)          # draws the login page and stops the script
+can_download = auth_ui.require(user, "download")
 
 
 @st.cache_data(show_spinner="Loading and cleaning data...")
@@ -28,7 +36,8 @@ def get_data():
 df_all, clean_report = get_data()
 
 # ------------------------------------------------------------------ sidebar filters
-st.sidebar.title("Filters")
+auth_ui.render_sidebar_account(store, user)
+st.sidebar.subheader("Filters")
 dmin, dmax = df_all["Order Date"].min().date(), df_all["Order Date"].max().date()
 date_range = st.sidebar.date_input("Order date range", (dmin, dmax), min_value=dmin, max_value=dmax)
 if isinstance(date_range, tuple) and len(date_range) == 2:
@@ -50,34 +59,29 @@ df = df_all[mask]
 if search:
     df = df[df["Product Name"].str.contains(search, case=False, regex=False)]
 
-st.title("🍬 Nassau Candy - Product Profitability & Margin Performance")
-st.caption("Sales volume alone is misleading. This dashboard shows which products and divisions actually earn profit, "
-           "and where pricing, sourcing or rationalisation is needed.")
+auth_ui.render_hero(user)
 
 if df.empty:
-    st.warning("No data for the selected filters.")
+    st.warning("No data matches these filters. Widen the date range, add a division or clear the product search.")
     st.stop()
 
-# ------------------------------------------------------------------ KPI row
+# ------------------------------------------------------------------ KPI strip
 k = M.headline_kpis(df)
-c = st.columns(6)
-c[0].metric("Sales", f"${k['Sales']:,.0f}")
-c[1].metric("Gross profit", f"${k['GrossProfit']:,.0f}")
-c[2].metric("Gross margin", f"{k['GrossMargin']:.1%}")
-c[3].metric("Profit / unit", f"${k['ProfitPerUnit']:.2f}")
-c[4].metric("Units", f"{k['Units']:,}")
-c[5].metric("Orders", f"{k['Orders']:,}")
+st.markdown(theme.kpi_strip_html(k), unsafe_allow_html=True)
 
 pm = M.product_metrics(df)
 diag = M.diagnose_products(pm, margin_thr, crit_thr, rev_thr)
 div = M.division_metrics(df)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["Product profitability", "Division performance", "Cost vs margin diagnostics",
-     "Profit concentration", "Data & method"])
+tab_names = ["Product profitability", "Division performance", "Cost vs margin diagnostics", "Profit concentration"]
+if auth_ui.require(user, "view_method"):
+    tab_names.append("Data & method")
+if auth_ui.require(user, "manage_users"):
+    tab_names.append("Team & access")
+tabs = dict(zip(tab_names, st.tabs(tab_names)))
 
 # ------------------------------------------------------------------ tab 1
-with tab1:
+with tabs["Product profitability"]:
     st.subheader("Product margin leaderboard")
     rank_by = st.radio("Rank by", ["Gross profit", "Gross margin"], horizontal=True)
     col = "GrossProfit" if rank_by == "Gross profit" else "GrossMargin"
@@ -105,7 +109,7 @@ with tab1:
         fig = px.scatter(diag, x="Sales", y="GrossMargin", size="Units", color="Segment", text="Product Name",
                          log_x=True, title="Sales vs margin: is volume profitable?",
                          hover_data={"GrossProfit": ":$,.0f", "Units": True})
-        fig.add_hline(y=margin_thr, line_dash="dash", line_color="grey",
+        fig.add_hline(y=margin_thr, line_dash="dash", line_color=theme.MUTED,
                       annotation_text=f"threshold {margin_thr:.0%}")
         fig.update_traces(textposition="top center", textfont_size=9)
         fig.update_layout(height=480, yaxis_tickformat=".0%", yaxis_title="Gross margin")
@@ -118,7 +122,7 @@ with tab1:
                                 "GrossProfit": st.column_config.NumberColumn("Gross profit", format="$%.0f")})
 
 # ------------------------------------------------------------------ tab 2
-with tab2:
+with tabs["Division performance"]:
     st.subheader("Division performance")
     a, b = st.columns(2)
     with a:
@@ -126,7 +130,7 @@ with tab2:
                         var_name="Metric", value_name="Share")
         long["Metric"] = long["Metric"].map({"RevenueShare": "Revenue share", "ProfitShare": "Profit share"})
         fig = px.bar(long, x="Division", y="Share", color="Metric", barmode="group",
-                     color_discrete_sequence=["#8a8f98", "#2a6fdb"], title="Revenue vs profit share")
+                     color_discrete_sequence=[theme.BUTTERSCOTCH, theme.RASPBERRY], title="Revenue vs profit share")
         fig.update_layout(yaxis_tickformat=".0%", height=400)
         st.plotly_chart(fig, width="stretch")
     with b:
@@ -169,7 +173,7 @@ with tab2:
                                 "ProfitShare": st.column_config.NumberColumn("Profit share", format="percent")})
 
 # ------------------------------------------------------------------ tab 3
-with tab3:
+with tabs["Cost vs margin diagnostics"]:
     st.subheader("Cost vs margin diagnostics")
     a, b = st.columns([3, 2])
     with a:
@@ -179,7 +183,7 @@ with tab3:
         lim = float(max(diag["Sales"].max(), diag["Cost"].max()))
         lo = float(min(diag["Sales"].min(), diag["Cost"].min()))
         fig.add_trace(go.Scatter(x=[lo, lim], y=[lo, lim], mode="lines", name="Break-even",
-                                 line=dict(dash="dash", color="grey")))
+                                 line=dict(dash="dash", color=theme.MUTED)))
         fig.update_traces(textposition="top center", textfont_size=9, selector=dict(mode="markers+text"))
         fig.update_layout(height=500)
         st.plotly_chart(fig, width="stretch")
@@ -218,7 +222,7 @@ with tab3:
                "vary over time. Margin risk is therefore structural (price/cost) rather than volatile.")
 
 # ------------------------------------------------------------------ tab 4
-with tab4:
+with tabs["Profit concentration"]:
     st.subheader("Profit concentration (Pareto)")
     cutoff = st.slider("Concentration cut-off (%)", 50, 95, 80, 5) / 100
     pr, sr = M.pareto(df, "Product Name", "Sales", cutoff)
@@ -232,10 +236,10 @@ with tab4:
 
     def pareto_chart(t, label, value_col):
         fig = go.Figure()
-        fig.add_bar(x=t["Product Name"], y=t["Share"], name=f"{label} share", marker_color="#2a6fdb")
+        fig.add_bar(x=t["Product Name"], y=t["Share"], name=f"{label} share", marker_color=theme.RASPBERRY)
         fig.add_scatter(x=t["Product Name"], y=t["CumShare"], name="Cumulative", yaxis="y2", mode="lines+markers",
-                        line=dict(color="#e8833a"))
-        fig.add_hline(y=cutoff, line_dash="dash", line_color="grey", yref="y2")
+                        line=dict(color=theme.INK))
+        fig.add_hline(y=cutoff, line_dash="dash", line_color=theme.MUTED, yref="y2")
         fig.update_layout(title=f"Pareto: {label} by product", height=420, yaxis=dict(tickformat=".0%"),
                           yaxis2=dict(overlaying="y", side="right", tickformat=".0%", range=[0, 1.05]),
                           legend=dict(orientation="h", y=-0.5), xaxis_tickangle=-45)
@@ -264,15 +268,23 @@ with tab4:
     st.plotly_chart(fig, width="stretch")
 
 # ------------------------------------------------------------------ tab 5
-with tab5:
-    st.subheader("Data cleaning report")
-    st.json(clean_report)
-    st.markdown(
-        "**Method.** Gross margin = gross profit / sales (computed on summed values, never an average of ratios). "
-        "Profit per unit = gross profit / units. Revenue/profit contribution = product share of the total. "
-        "Margin volatility = standard deviation (percentage points) of a product's monthly margin, shown only if it has "
-        ">= 3 months of data.\n\n"
-        "**Data caveat.** Ship Date values fall in 2026-2030, well after the 2024-2025 order dates, so shipping metrics were "
-        "not used; profitability does not depend on them."
-    )
-    st.download_button("Download filtered product table (CSV)", diag.to_csv(index=False), "product_diagnostics.csv")
+if "Data & method" in tabs:
+    with tabs["Data & method"]:
+        st.subheader("Data cleaning report")
+        st.json(clean_report)
+        st.markdown(
+            "**Method.** Gross margin = gross profit / sales (computed on summed values, never an average of ratios). "
+            "Profit per unit = gross profit / units. Revenue/profit contribution = product share of the total. "
+            "Margin volatility = standard deviation (percentage points) of a product's monthly margin, shown only if it has "
+            ">= 3 months of data.\n\n"
+            "**Data caveat.** Ship Date values fall in 2026-2030, well after the 2024-2025 order dates, so shipping metrics were "
+            "not used; profitability does not depend on them."
+        )
+        if can_download:
+            st.download_button("Download filtered product table (CSV)", diag.to_csv(index=False),
+                               "product_diagnostics.csv")
+
+# ------------------------------------------------------------------ tab 6 (admins only)
+if "Team & access" in tabs:
+    with tabs["Team & access"]:
+        auth_ui.render_admin_panel(store, user)

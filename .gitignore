@@ -6,3 +6,6 @@ venv/
 .ipynb_checkpoints/
 .DS_Store
 .streamlit/secrets.toml
+
+# Accounts, password hashes and audit log: never commit
+auth_data/
